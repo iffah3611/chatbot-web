@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your KTU Guide</title>
+    <!-- Importing Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: #FAFAFA;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: center;
+            padding: 40px 20px;
+        }
+
+        /* Header Styling */
+        header {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #4FD1C5;
+        }
+
+        header p {
+            font-size: 1.1rem;
+            color: #4B5563;
+            margin-top: 0;
+            text-align: center;
+            width: 100%;
+        }
+
+        /* 3x3 Grid Container at the bottom */
+        .menu-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            /* 2 rows since there are 5 items */
+            gap: 20px;
+            width: 100%;
+            max-width: 500px;
+            margin-bottom: 20px;
+        }
+
+        /* Bubble Style */
+        .option-bubble {
+            background-color: white;
+            border: 2.5px solid black;
+            border-radius: 25px;
+            /* Bubble shape */
+            aspect-ratio: 1 / 1;
+            /* Makes them square/circular */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-decoration: none;
+            color: black;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            box-shadow: 0px 4px 0px #000;
+            margin: 10px;
+            /* Slight 3D effect */
+        }
+
+        .option-bubble:hover {
+            transform: translateY(-5px);
+            box-shadow: 0px 8px 0px #000;
+            background-color: #f0f0f0;
+        }
+
+        .option-bubble:active {
+            transform: translateY(2px);
+            box-shadow: 0px 0px 0px #000;
+        }
+
+        .option-bubble i {
+            width: 40px;
+            height: 40px;
+            margin-bottom: 10px;
+        }
+
+        .option-bubble span {
+            font-weight: 700;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        /* Center the last row if needed */
+        .option-bubble:nth-child(4) {
+            grid-column: 1;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 400px) {
+            header h1 {
+                font-size: 1.8rem;
+            }
+
+            .option-bubble span {
+                font-size: 0.75rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>Your KTU Guide</h1>
+        <p>Your companion for engineering success</p>
+    </header>
+
+    <div class="menu-container">
+        <!-- Mocktest -->
+        <div class="option-bubble">
+            <i data-lucide="pen-tool"></i>
+            <span>Mocktest</span>
+        </div>
+
+        <!-- Flash Card -->
+        <div class="option-bubble">
+            <i data-lucide="layers"></i>
+            <span>Flash Card</span>
+        </div>
+
+        <!-- Personal Coach -->
+        <div class="option-bubble">
+            <i data-lucide="user-check"></i>
+            <span>Personal Coach</span>
+        </div>
+
+        <!-- Syllabus -->
+        <div class="option-bubble">
+            <i data-lucide="scroll-text"></i>
+            <span>Syllabus</span>
+        </div>
+
+        <!-- Notes -->
+        <div class="option-bubble">
+            <i data-lucide="sticky-note"></i>
+            <span>Notes</span>
+        </div>
+
+        <!-- Placeholder to maintain 3x3 aesthetic -->
+        <div class="option-bubble">
+            <i data-lucide="file-text"></i>
+            <span>Previous year questions</span>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>
