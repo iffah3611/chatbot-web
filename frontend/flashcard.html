@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KTU Flashcards</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="api.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <main class="page-shell">
+        <div class="page-header">
+            <div>
+                <p class="eyebrow">
+                    <i data-lucide="layers-3"></i>
+                    Active recall
+                </p>
+                <h1 class="page-title">KTU Flashcards</h1>
+                <p class="page-copy">Generate flashcards for quick revision.</p>
+            </div>
+            <a class="button-ghost" href="front.html">Back to Dashboard</a>
+        </div>
+
+        <section class="study-shell" id="flashcardSection">
+            <div id="generateForm">
+                <h2>Generate Flashcards</h2>
+                <div class="form-group">
+                    <label for="subject">Subject:</label>
+                    <input type="text" id="subject" placeholder="Enter subject name" required>
+                </div>
+                <div class="form-group">
+                    <label for="numCards">Number of Cards:</label>
+                    <input type="number" id="numCards" min="1" max="50" value="20" required>
+                </div>
+                <button class="button" onclick="generateFlashcards()">Generate Flashcards</button>
+            </div>
+
+            <div id="flashcardContent" style="display: none;">
+                <div class="flashcard-wrap">
+                    <div class="flashcard-stage">
+                        <div class="flashcard" id="card" onclick="flipCard()">
+                            <div class="card-face front" id="frontText"></div>
+                            <div class="card-face back" id="backText"></div>
+                        </div>
+                    </div>
+
+                    <div class="flash-controls">
+                        <button class="button-secondary flash-btn" onclick="prevCard()">Previous</button>
+                        <button class="button flash-btn" onclick="nextCard()">Next</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        let flashcards = [];
+        let currentIndex = 0;
+
+        async function generateFlashcards() {
+            const subject = document.getElementById('subject').value.trim();
+            const numCards = document.getElementById('numCards').value;
+
+            if (!subject) {
+                alert('Please enter a subject name.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/generate-flashcard', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getStoredToken()}`
+                    },
+                    body: JSON.stringify({
+                        subject: subject,
+                        num_cards: parseInt(numCards)
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    // Parse the generated flashcards
+                    // Assuming the response is formatted as "Question: ... Answer: ..." etc.
+                    flashcards = parseFlashcards(data.flashcards);
+                    currentIndex = 0;
+
+                    document.getElementById('generateForm').style.display = 'none';
+                    document.getElementById('flashcardContent').style.display = 'block';
+
+                    loadCard();
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + error.detail);
+                }
+            } catch (error) {
+                console.error('Error generating flashcards:', error);
+                alert('Error generating flashcards. Please try again.');
+            }
+        }
+
+        function parseFlashcards(content) {
+            // Simple parsing - assuming format like "1. Question: ... Answer: ..."
+            const cards = [];
+            const lines = content.split('\n');
+            let currentCard = {};
+
+            for (const line of lines) {
+                if (line.includes('Question:') || line.includes('Q:')) {
+                    if (currentCard.question) {
+                        cards.push(currentCard);
+                    }
+                    currentCard = { question: line.split(':')[1]?.trim() || line, answer: '' };
+                } else if (line.includes('Answer:') || line.includes('A:')) {
+                    currentCard.answer = line.split(':')[1]?.trim() || line;
+                }
+            }
+
+            if (currentCard.question) {
+                cards.push(currentCard);
+            }
+
+            return cards.length > 0 ? cards : [{ question: 'Generated Flashcards', answer: content }];
+        }
+
+        function loadCard() {
+            if (flashcards.length > 0) {
+                document.getElementById("frontText").innerText = flashcards[currentIndex].question;
+                document.getElementById("backText").innerText = flashcards[currentIndex].answer;
+                document.getElementById("card").classList.remove("flip");
+            }
+        }
+
+        function flipCard() {
+            document.getElementById("card").classList.toggle("flip");
+        }
+
+        function nextCard() {
+            currentIndex = (currentIndex + 1) % flashcards.length;
+            loadCard();
+        }
+
+        function prevCard() {
+            currentIndex = (currentIndex - 1 + flashcards.length) % flashcards.length;
+            loadCard();
+        }
+    </script>
+</body>
+
+</html>

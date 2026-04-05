@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KTU Mock Test</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="api.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <main class="page-shell">
+        <div class="page-header">
+            <div>
+                <p class="eyebrow">
+                    <i data-lucide="clipboard-check"></i>
+                    Revision mode
+                </p>
+                <h1 class="page-title">KTU Mock Test</h1>
+                <p class="page-copy">Generate practice tests to check your exam readiness.</p>
+            </div>
+            <a class="button-ghost" href="front.html">Back to Dashboard</a>
+        </div>
+
+        <section class="study-shell" id="testSection">
+            <div id="generateForm">
+                <h2>Generate Mock Test</h2>
+                <div class="form-group">
+                    <label for="subject">Subject:</label>
+                    <input type="text" id="subject" placeholder="Enter subject name" required>
+                </div>
+                <div class="form-group">
+                    <label for="numQuestions">Number of Questions:</label>
+                    <input type="number" id="numQuestions" min="1" max="20" value="10" required>
+                </div>
+                <button class="button" onclick="generateTest()">Generate Test</button>
+            </div>
+
+            <div id="testContent" style="display: none;">
+                <h2>Mock Test</h2>
+                <div id="testDisplay"></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        async function generateTest() {
+            const subject = document.getElementById('subject').value.trim();
+            const numQuestions = document.getElementById('numQuestions').value;
+
+            if (!subject) {
+                alert('Please enter a subject name.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/generate-mocktest', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getStoredToken()}`
+                    },
+                    body: JSON.stringify({
+                        subject: subject,
+                        num_questions: parseInt(numQuestions)
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('generateForm').style.display = 'none';
+                    document.getElementById('testContent').style.display = 'block';
+                    document.getElementById('testDisplay').innerHTML = `<pre>${data.test}</pre>`;
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + error.detail);
+                }
+            } catch (error) {
+                console.error('Error generating test:', error);
+                alert('Error generating test. Please try again.');
+            }
+        }
+    </script>
+</body>
+
+</html>

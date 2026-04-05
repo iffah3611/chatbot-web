@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Login - KTU Assistant</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <script src="api.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <main class="auth-layout">
+        <section class="auth-card">
+            <div class="auth-side">
+                <div>
+                    <p class="eyebrow">
+                        <i data-lucide="shield-check"></i>
+                        Secure student access
+                    </p>
+                    <h1 class="hero-title" style="font-size: clamp(2.2rem, 5vw, 3.8rem); color: white;">Welcome back.</h1>
+                    <p class="helper-text" style="margin-top: 18px; line-height: 1.7;">
+                        Sign in to continue your Kerala Technological University workflow, resume chats, and access the blue-themed dashboard built
+                        for focused study sessions.
+                    </p>
+                </div>
+                <div class="mini-panel" style="transform: none; background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.18); box-shadow: none;">
+                    <h3 style="margin-top: 0;">Inside your workspace</h3>
+                    <p class="helper-text">Mock tests, flashcards, notes, syllabus shortcuts, and AI-assisted doubt solving.</p>
+                </div>
+            </div>
+
+            <div class="auth-form">
+                <div class="brand" style="margin-bottom: 24px;">
+                    <div class="brand-mark">KT</div>
+                    <div class="brand-copy">
+                        <h2 class="auth-title">Login</h2>
+                        <p class="auth-copy">Use your Kerala Technological University Assistant account to continue.</p>
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" placeholder="Enter your username" required>
+                    </div>
+
+                    <div class="field">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" placeholder="Enter your password" required>
+                    </div>
+                </div>
+
+                <button class="button" style="width: 100%; margin-top: 20px;" onclick="login()">Login to Dashboard</button>
+
+                <div class="status error" id="errorMessage"></div>
+
+                <p class="helper-text" style="margin-top: 22px;">
+                    New here?
+                    <a href="signup.html" style="color: var(--primary-deep); font-weight: 700;">Create your account</a>
+                </p>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        async function login() {
+            const username = document.getElementById("username").value.trim();
+            const password = document.getElementById("password").value.trim();
+            const errorDiv = document.getElementById("errorMessage");
+
+            errorDiv.innerText = "";
+            errorDiv.className = "status error";
+
+            if (!username || !password) {
+                errorDiv.innerText = "Please fill in all fields.";
+                return;
+            }
+
+            try {
+                const response = await fetch(buildApiUrl("/login"), {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    errorDiv.innerText = result.detail || "Login failed.";
+                } else {
+                    saveSession(result);
+                    window.location.href = "/";
+                }
+
+            } catch (error) {
+                errorDiv.innerText = "Server connection error.";
+            }
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kerala Technological University Assistant</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="api.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <main class="page-shell">
+        <div class="topbar">
+            <div class="brand">
+                <div class="brand-mark">KTU</div>
+                <div class="brand-copy">
+                    <h1>Kerala Technological University Assistant</h1>
+                    <p id="dashboardGreeting">Your academic dashboard for Kerala Technological University
+                        prep.</p>
+                </div>
+            </div>
+            <div class="nav-actions" id="navActions">
+                <a class="button-ghost" href="login.html">Log In</a>
+                <a class="button" href="signup.html">Create Account</a>
+            </div>
+        </div>
+
+        <section class="hero">
+            <div>
+                <div class="eyebrow">
+                    <i data-lucide="sparkles"></i>
+                    Smarter study flow for engineering students
+                </div>
+                <h2 class="hero-title">Learn faster, stay organized, and ask better questions.</h2>
+                <p class="hero-copy">
+                    Move from syllabus to notes to revision without switching mental gears. The interface is designed to
+                    feel clean, calm, and focused so your study sessions feel less chaotic.
+                </p>
+                <div class="inline-actions" style="margin-top: 24px;">
+                    <a class="button" href="chat.html">Open Personal Coach</a>
+                    <a class="button-secondary" href="upload_dataset.html" id="adminUploadAction">Upload Study PDFs</a>
+                </div>
+                <div class="hero-metrics">
+                    <div class="metric-card">
+                        <strong>6</strong>
+                        <span>Core study sections</span>
+                    </div>
+                    <div class="metric-card">
+                        <strong>1</strong>
+                        <span>Unified dashboard</span>
+                    </div>
+                    <div class="metric-card">
+                        <strong>24/7</strong>
+                        <span>Anytime review flow</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hero-visual">
+                <div class="floating-card">
+                    <h3 style="margin-top: 0;">Quote</h3>
+                    <p class="section-copy">The only way to do great work is to love what you do.</p>
+                </div>
+                <div class="mini-panel">
+                    <h3 style="margin-top: 0;">Let's take another approach</h3>
+                    <p class="section-copy">How many hours have we wasted searching all of those materials well now fret
+                        not.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="feature-panel" style="margin-top: 24px;">
+            <div class="page-header">
+                <div>
+                    <p class="eyebrow" style="margin-bottom: 12px;">
+                        <i data-lucide="layout-grid"></i>
+                        Study Tools
+                    </p>
+                    <h2 class="section-title">Everything in one dashboard</h2>
+                    <p class="section-copy">Pick a mode depending on whether you want to learn, revise, test, or ask.
+                    </p>
+                </div>
+            </div>
+
+            <div class="feature-grid">
+                <a class="tile" href="mocktest.html">
+                    <div class="tile-icon"><i data-lucide="pen-square"></i></div>
+                    <h3>Mock Tests</h3>
+                    <p>Quick evaluation rounds to check understanding before exams.</p>
+                </a>
+                <a class="tile" href="flashcard.html">
+                    <div class="tile-icon"><i data-lucide="layers-3"></i></div>
+                    <h3>Flashcards</h3>
+                    <p>Fast recall practice for key ideas, formulas, and definitions.</p>
+                </a>
+                <a class="tile" href="chat.html">
+                    <div class="tile-icon"><i data-lucide="messages-square"></i></div>
+                    <h3>Personal Coach</h3>
+                    <p>Ask doubts naturally and get guided explanations in one place.</p>
+                </a>
+                <a class="tile" href="syllabus.html">
+                    <div class="tile-icon"><i data-lucide="book-open-text"></i></div>
+                    <h3>Syllabus</h3>
+                    <p>Jump into subject outlines and keep your coverage on track.</p>
+                </a>
+                <a class="tile" href="notes.html">
+                    <div class="tile-icon"><i data-lucide="notebook-tabs"></i></div>
+                    <h3>Notes</h3>
+                    <p>Open your core subject notes from a cleaner catalog view.</p>
+                </a>
+                <a class="tile" href="pyq.html">
+                    <div class="tile-icon"><i data-lucide="file-stack"></i></div>
+                    <h3>Previous Year Papers</h3>
+                    <p>Practice around real patterns and identify repeated question styles.</p>
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        function escapeHtml(value) {
+            return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                "\"": "&quot;",
+                "'": "&#39;"
+            }[character]));
+        }
+
+        function getPastelAvatarClass(name) {
+            const palette = [
+                "avatar-pastel-blue",
+                "avatar-pastel-mint",
+                "avatar-pastel-pink",
+                "avatar-pastel-peach",
+                "avatar-pastel-lilac"
+            ];
+
+            const source = String(name || "U");
+            const total = source.split("").reduce((sum, character) => sum + character.charCodeAt(0), 0);
+            return palette[total % palette.length];
+        }
+
+        const storedUser = getStoredUser();
+        const greeting = document.getElementById("dashboardGreeting");
+        const navActions = document.getElementById("navActions");
+        const adminUploadAction = document.getElementById("adminUploadAction");
+
+        if (adminUploadAction && (!storedUser || !storedUser.is_admin)) {
+            adminUploadAction.remove();
+        }
+
+        if (storedUser) {
+            greeting.innerText = `Welcome back, ${storedUser.username}. Pick up your Kerala Technological University study flow where you left off.`;
+            const semesterLabel = storedUser.semester ? `Semester ${storedUser.semester}` : "Semester not set";
+            const safeUsername = escapeHtml(storedUser.username || "-");
+            const safeRegistrationNumber = escapeHtml(storedUser.registration_number || "-");
+            const safeEmail = escapeHtml(storedUser.email || "-");
+            const safeSemesterLabel = escapeHtml(semesterLabel);
+            const avatarClass = getPastelAvatarClass(storedUser.username);
+            const avatarInitial = safeUsername.charAt(0).toUpperCase();
+
+            navActions.innerHTML = `
+                <div class="profile-menu">
+                    <button class="profile-trigger" id="profileTrigger" type="button" aria-expanded="false" aria-haspopup="true" aria-controls="profileCard" aria-label="Open profile menu">
+                        <span class="profile-avatar round ${avatarClass}">
+                            <span class="profile-avatar-initial">${avatarInitial}</span>
+                        </span>
+                    </button>
+
+                    <div class="profile-card" id="profileCard" hidden>
+                        <div class="profile-card-header">
+                            <div class="profile-avatar round large ${avatarClass}">
+                                <span class="profile-avatar-initial large">${avatarInitial}</span>
+                            </div>
+                            <div>
+                                <strong>${safeUsername}</strong>
+                                <p>${safeSemesterLabel}</p>
+                            </div>
+                        </div>
+
+                        <div class="profile-details">
+                            <div class="profile-detail-row">
+                                <span>Registration No</span>
+                                <strong>${safeRegistrationNumber}</strong>
+                            </div>
+                            <div class="profile-detail-row">
+                                <span>Email</span>
+                                <strong>${safeEmail}</strong>
+                            </div>
+                            <div class="profile-detail-row">
+                                <span>Username</span>
+                                <strong>${safeUsername}</strong>
+                            </div>
+                            <div class="profile-detail-row">
+                                <span>Semester</span>
+                                <strong>${safeSemesterLabel}</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <a class="button" href="chat.html">Open Coach</a>
+            `;
+
+            lucide.createIcons();
+
+            const profileTrigger = document.getElementById("profileTrigger");
+            const profileCard = document.getElementById("profileCard");
+
+            if (profileTrigger && profileCard) {
+                profileTrigger.addEventListener("click", () => {
+                    const isOpen = !profileCard.hasAttribute("hidden");
+                    profileCard.toggleAttribute("hidden");
+                    profileTrigger.setAttribute("aria-expanded", String(!isOpen));
+                });
+
+                document.addEventListener("click", (event) => {
+                    if (!navActions.contains(event.target)) {
+                        profileCard.setAttribute("hidden", "");
+                        profileTrigger.setAttribute("aria-expanded", "false");
+                    }
+                });
+            }
+        }
+    </script>
+</body>
+
+</html>

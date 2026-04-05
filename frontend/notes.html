@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KTU Notes</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="api.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <main class="page-shell">
+        <div class="page-header">
+            <div>
+                <p class="eyebrow">
+                    <i data-lucide="notebook-tabs"></i>
+                    Subject library
+                </p>
+                <h1 class="page-title">KTU Notes</h1>
+                <p class="page-copy">Browse your subject note shelves in a cleaner catalog.</p>
+            </div>
+            <a class="button-ghost" href="front.html">Back to Dashboard</a>
+        </div>
+
+        <section class="study-shell">
+            <div class="subject-list" id="subjectList">
+                <!-- Subjects will be loaded here -->
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        async function loadNotes() {
+            try {
+                const response = await fetch('/notes');
+                const data = await response.json();
+
+                const subjectList = document.getElementById('subjectList');
+                subjectList.innerHTML = '';
+
+                if (data.subjects.length === 0) {
+                    subjectList.innerHTML = '<p>No notes available.</p>';
+                    return;
+                }
+
+                data.subjects.forEach(subject => {
+                    const subjectCard = document.createElement('div');
+                    subjectCard.className = 'subject-card';
+
+                    let filesHtml = '';
+                    if (subject.files.length === 1) {
+                        subjectCard.onclick = () => openPDF(subject.files[0]);
+                        filesHtml = '<span class="pill">PDF</span>';
+                    } else {
+                        // For multiple files, show expandable
+                        subjectCard.className += ' expandable';
+                        subjectCard.onclick = () => toggleFiles(subjectCard);
+                        filesHtml = `<span class="pill">${subject.files.length} files</span>`;
+
+                        const filesList = document.createElement('div');
+                        filesList.className = 'files-list';
+                        filesList.style.display = 'none';
+
+                        subject.files.forEach(file => {
+                            const fileItem = document.createElement('div');
+                            fileItem.className = 'file-item';
+                            fileItem.onclick = (e) => {
+                                e.stopPropagation();
+                                openPDF(file);
+                            };
+                            fileItem.innerHTML = `<i data-lucide="file-text"></i> ${file.split('/').pop()}`;
+                            filesList.appendChild(fileItem);
+                        });
+
+                        subjectCard.appendChild(filesList);
+                    }
+
+                    subjectCard.innerHTML = `
+                        <div class="subject-main">
+                            <div class="subject-icon"><i data-lucide="book"></i></div>
+                            <div>
+                                <h3>${subject.name}</h3>
+                                <p>Notes for ${subject.name}</p>
+                            </div>
+                        </div>
+                        ${filesHtml}
+                    ` + (subject.files.length > 1 ? subjectCard.innerHTML : '');
+
+                    subjectList.appendChild(subjectCard);
+                });
+
+                lucide.createIcons();
+            } catch (error) {
+                console.error('Error loading notes:', error);
+                document.getElementById('subjectList').innerHTML = '<p>Error loading notes.</p>';
+            }
+        }
+
+        function toggleFiles(card) {
+            const filesList = card.querySelector('.files-list');
+            const isExpanded = filesList.style.display !== 'none';
+            filesList.style.display = isExpanded ? 'none' : 'block';
+            card.classList.toggle('expanded', !isExpanded);
+        }
+
+        function openPDF(file) {
+            window.open("../data/" + file, "_blank");
+        }
+
+        loadNotes();
+    </script>
+</body>
+
+</html>

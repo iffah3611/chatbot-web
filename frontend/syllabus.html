@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Syllabus - KTU Assistant</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="api.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <main class="page-shell">
+        <div class="page-header">
+            <div>
+                <p class="eyebrow">
+                    <i data-lucide="book-open-text"></i>
+                    Semester roadmap
+                </p>
+                <h1 class="page-title">KTU Syllabus</h1>
+                <p class="page-copy">Use the syllabus cards as your roadmap for what to cover next.</p>
+            </div>
+            <a class="button-ghost" href="front.html">Back to Dashboard</a>
+        </div>
+
+        <section class="study-shell">
+            <div class="subject-list" id="subjectList">
+                <!-- Subjects will be loaded here -->
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        async function loadSyllabus() {
+            try {
+                const response = await fetch('/syllabus');
+                const data = await response.json();
+
+                const subjectList = document.getElementById('subjectList');
+                subjectList.innerHTML = '';
+
+                if (data.subjects.length === 0) {
+                    subjectList.innerHTML = '<p>No syllabus documents available.</p>';
+                    return;
+                }
+
+                data.subjects.forEach(subject => {
+                    const subjectCard = document.createElement('div');
+                    subjectCard.className = 'subject-card';
+                    subjectCard.onclick = () => openPDF(subject.file);
+
+                    subjectCard.innerHTML = `
+                        <div class="subject-main">
+                            <div class="subject-icon"><i data-lucide="book"></i></div>
+                            <div>
+                                <h3>${subject.name}</h3>
+                                <p>Open the official syllabus outline.</p>
+                            </div>
+                        </div>
+                        <span class="pill">PDF</span>
+                    `;
+
+                    subjectList.appendChild(subjectCard);
+                });
+
+                lucide.createIcons();
+            } catch (error) {
+                console.error('Error loading syllabus:', error);
+                document.getElementById('subjectList').innerHTML = '<p>Error loading syllabus.</p>';
+            }
+        }
+
+        function openPDF(file) {
+            window.open("../data/" + file, "_blank");
+        }
+
+        loadSyllabus();
+    </script>
+</body>
+
+</html>

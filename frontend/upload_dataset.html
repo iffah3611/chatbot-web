@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Upload Dataset - Admin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <script src="api.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <main class="page-shell">
+        <div class="page-header">
+            <div>
+                <p class="eyebrow">
+                    <i data-lucide="upload-cloud"></i>
+                    Admin upload
+                </p>
+                <h1 class="page-title">Upload PDF Dataset</h1>
+                <p class="page-copy">Add new study material and push it into the assistant knowledge base.</p>
+            </div>
+            <a class="button-ghost" href="front.html">Back to Dashboard</a>
+        </div>
+
+        <section class="study-shell upload-panel">
+            <div class="upload-box">
+                <div class="field">
+                    <label for="fileInput">Choose arranged dataset folder</label>
+                    <input type="file" id="fileInput" accept=".pdf" multiple webkitdirectory directory>
+                    <p class="helper-text" style="margin-top: 8px;">Select the main folder. Only PDF files inside it will be uploaded with their folder structure preserved.</p>
+                </div>
+            </div>
+
+            <button class="button" style="margin-top: 18px;" onclick="uploadFile()">Upload Folder and Index</button>
+
+            <div class="status" id="message"></div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        const storedUser = getStoredUser();
+        const messageDiv = document.getElementById("message");
+        const fileInput = document.getElementById("fileInput");
+
+        if (!storedUser) {
+            messageDiv.innerHTML = "Please log in first.";
+            messageDiv.className = "status error";
+            fileInput.disabled = true;
+        } else if (!storedUser.is_admin) {
+            messageDiv.innerHTML = "Only admins can upload datasets.";
+            messageDiv.className = "status error";
+            fileInput.disabled = true;
+        }
+
+        async function uploadFile() {
+            if (!storedUser || !storedUser.is_admin) {
+                messageDiv.innerHTML = "Only admins can upload datasets.";
+                messageDiv.className = "status error";
+                return;
+            }
+
+            if (!fileInput.files.length) {
+                messageDiv.innerHTML = "Please select a dataset folder.";
+                messageDiv.className = "status error";
+                return;
+            }
+
+            const token = localStorage.getItem("access_token");
+
+            if (!token) {
+                messageDiv.innerHTML = "You must be logged in as admin.";
+                messageDiv.className = "status error";
+                return;
+            }
+
+            const formData = new FormData();
+            const allFiles = Array.from(fileInput.files);
+            const pdfFiles = allFiles.filter((file) => file.name.toLowerCase().endsWith(".pdf"));
+
+            if (!pdfFiles.length) {
+                messageDiv.innerHTML = "The selected folder does not contain any PDF files.";
+                messageDiv.className = "status error";
+                return;
+            }
+
+            pdfFiles.forEach((file) => {
+                formData.append("files", file, file.name);
+                formData.append("relative_paths", file.webkitRelativePath || file.name);
+            });
+
+            messageDiv.innerHTML = `Uploading ${pdfFiles.length} PDF file(s)...`;
+            messageDiv.className = "status";
+
+            try {
+                const response = await fetch(buildApiUrl("/upload"), {
+                    method: "POST",
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    },
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    messageDiv.innerHTML = result.detail || "Upload failed.";
+                    messageDiv.className = "status error";
+                } else {
+                    messageDiv.innerHTML = result.message || "Dataset uploaded and indexed successfully.";
+                    messageDiv.className = "status success";
+                    fileInput.value = "";
+                }
+
+            } catch (error) {
+                messageDiv.innerHTML = "Server connection error.";
+                messageDiv.className = "status error";
+            }
+        }
+    </script>
+</body>
+
+</html>
