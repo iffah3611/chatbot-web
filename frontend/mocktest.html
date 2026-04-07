@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -19,7 +19,7 @@
                     Revision mode
                 </p>
                 <h1 class="page-title">KTU Mock Test</h1>
-                <p class="page-copy">Generate practice tests to check your exam readiness.</p>
+                <p class="page-copy">Generate a 15-minute MCQ test from PYQs, notes, and syllabus boundaries.</p>
             </div>
             <a class="button-ghost" href="front.html">Back to Dashboard</a>
         </div>
@@ -27,38 +27,222 @@
         <section class="study-shell" id="testSection">
             <div id="generateForm">
                 <h2>Generate Mock Test</h2>
-                <div class="form-group">
-                    <label for="subject">Subject:</label>
-                    <input type="text" id="subject" placeholder="Enter subject name" required>
+                <div class="field">
+                    <label for="subject">Subject</label>
+                    <select id="subject" required>
+                        <option value="">Select a subject</option>
+                    </select>
                 </div>
-                <div class="form-group">
-                    <label for="numQuestions">Number of Questions:</label>
-                    <input type="number" id="numQuestions" min="1" max="20" value="10" required>
+                <div class="field" style="margin-top: 14px;">
+                    <label for="moduleNumber">Module Number</label>
+                    <select id="moduleNumber" required>
+                        <option value="">Select a module</option>
+                        <option value="1">Module 1</option>
+                        <option value="2">Module 2</option>
+                        <option value="3">Module 3</option>
+                        <option value="4">Module 4</option>
+                        <option value="5">Module 5</option>
+                    </select>
                 </div>
-                <button class="button" onclick="generateTest()">Generate Test</button>
+                <div class="field" style="margin-top: 14px;">
+                    <label for="numQuestions">Number of Questions</label>
+                    <input type="number" id="numQuestions" min="15" max="15" value="15" required readonly>
+                </div>
+                <div id="subjectResources" class="study-links" hidden></div>
+                <div id="historyPanel" class="mock-history" hidden></div>
+                <div class="status" id="mockStatus" hidden></div>
+                <button class="button" style="margin-top: 18px;" onclick="generateTest(false)">Generate Test</button>
+                <button class="button-secondary" style="margin-top: 18px;" onclick="generateTest(true)">Regenerate</button>
             </div>
 
             <div id="testContent" style="display: none;">
-                <h2>Mock Test</h2>
-                <div id="testDisplay"></div>
+                <div class="mock-test-bar">
+                    <div>
+                        <h2 id="testTitle">Mock Test</h2>
+                        <p class="helper-text">MCQs only. Auto-submits when the timer reaches zero.</p>
+                    </div>
+                    <div class="mock-timer" id="timerDisplay">15:00</div>
+                </div>
+                <form id="mockTestForm" class="mock-question-list"></form>
+                <button class="button" style="margin-top: 18px;" id="submitButton" onclick="submitTest(false)">Submit Test</button>
+            </div>
+
+            <div id="resultContent" style="display: none;">
+                <h2>Result</h2>
+                <div id="resultSummary" class="mock-result-summary"></div>
+                <div id="mistakeList" class="mock-question-list"></div>
+                <div id="resultHistory" class="mock-history"></div>
+                <button class="button-secondary" style="margin-top: 18px;" onclick="resetTest()">Generate Another Test</button>
             </div>
         </section>
     </main>
 
     <script>
         lucide.createIcons();
+        let availableSubjects = [];
+        let currentQuestions = [];
+        let currentSubject = '';
+        let currentModule = null;
+        let timerId = null;
+        let remainingSeconds = 15 * 60;
+        let isSubmitting = false;
 
-        async function generateTest() {
+        function setStatus(message, type = '') {
+            const statusBox = document.getElementById('mockStatus');
+            statusBox.hidden = !message;
+            statusBox.textContent = message || '';
+            statusBox.className = type ? `status ${type}` : 'status';
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[character]));
+        }
+
+        function formatDateTime(value) {
+            if (!value) return 'Unknown time';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+        }
+
+        function formatTimer(seconds) {
+            const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+            const secs = Math.max(0, seconds % 60).toString().padStart(2, '0');
+            return `${minutes}:${secs}`;
+        }
+
+        function renderHistory(targetId, history = []) {
+            const target = document.getElementById(targetId);
+            if (!target) return;
+            if (!history.length) {
+                target.hidden = true;
+                target.innerHTML = '';
+                return;
+            }
+
+            target.hidden = false;
+            target.innerHTML = `
+                <h3>Previous Attempts</h3>
+                <div class="history-grid">
+                    ${history.map((attempt) => `
+                        <div class="history-pill">
+                            <strong>${attempt.score}/${attempt.total_questions}</strong>
+                            <span>${escapeHtml(formatDateTime(attempt.created_at))}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        async function loadSubjects() {
+            try {
+                const [subjectResponse, pyqResponse] = await Promise.all([
+                    fetch(buildApiUrl('/subjects')),
+                    fetch(buildApiUrl('/pyqs'))
+                ]);
+                const data = await subjectResponse.json();
+                const pyqData = await pyqResponse.json().catch(() => ({ subjects: [] }));
+                const byName = new Map();
+                (data.subjects || []).forEach((subject) => byName.set(subject.name, subject));
+                (pyqData.subjects || []).forEach((subject) => {
+                    if (!byName.has(subject.name)) {
+                        byName.set(subject.name, {
+                            name: subject.name,
+                            code: subject.subject_code,
+                            files: [],
+                            modules: [1, 2, 3, 4, 5]
+                        });
+                    }
+                });
+                availableSubjects = Array.from(byName.values());
+                const select = document.getElementById('subject');
+
+                availableSubjects.forEach((subject) => {
+                    const option = document.createElement('option');
+                    option.value = subject.name;
+                    option.textContent = subject.code ? `${subject.name} (${subject.code})` : subject.name;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading subjects:', error);
+            }
+        }
+
+        function renderSubjectResources(subjectName) {
+            const resources = document.getElementById('subjectResources');
+            const subject = availableSubjects.find((item) => item.name === subjectName);
+
+            if (!subject || !subject.files?.length) {
+                resources.hidden = true;
+                resources.innerHTML = '';
+                return;
+            }
+
+            resources.hidden = false;
+            resources.innerHTML = `
+                <strong>Notes available for ${escapeHtml(subject.name)}</strong>
+                ${subject.files.map((file) => `
+                    <a class="resource-chip" href="${buildDataUrl(file.path)}" target="_blank" rel="noopener noreferrer">${escapeHtml(file.name)}</a>
+                `).join('')}
+            `;
+        }
+
+        function renderQuestions() {
+            const form = document.getElementById('mockTestForm');
+            form.innerHTML = currentQuestions.map((question, questionIndex) => `
+                <div class="question-block mock-question-card">
+                    <h3>${questionIndex + 1}. ${escapeHtml(question.question)}</h3>
+                    <div class="mcq-options">
+                        ${Object.entries(question.options).map(([label, option]) => {
+                            const inputId = `q${questionIndex}_option${label}`;
+                            return `
+                                <label class="mcq-option" for="${inputId}">
+                                    <input id="${inputId}" type="radio" name="question_${questionIndex}" value="${escapeHtml(label)}">
+                                    <span><strong>${escapeHtml(label)}.</strong> ${escapeHtml(option)}</span>
+                                </label>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function startTimer(durationSeconds) {
+            clearInterval(timerId);
+            remainingSeconds = durationSeconds;
+            document.getElementById('timerDisplay').textContent = formatTimer(remainingSeconds);
+            timerId = setInterval(() => {
+                remainingSeconds -= 1;
+                document.getElementById('timerDisplay').textContent = formatTimer(remainingSeconds);
+                if (remainingSeconds <= 0) {
+                    clearInterval(timerId);
+                    submitTest(true);
+                }
+            }, 1000);
+        }
+
+        async function generateTest(regenerate = false) {
             const subject = document.getElementById('subject').value.trim();
+            const moduleNumber = document.getElementById('moduleNumber').value;
             const numQuestions = document.getElementById('numQuestions').value;
 
             if (!subject) {
-                alert('Please enter a subject name.');
+                alert('Please select a subject.');
+                return;
+            }
+            if (!moduleNumber) {
+                alert('Please select a module number.');
                 return;
             }
 
             try {
-                const response = await fetch('/generate-mocktest', {
+                setStatus('Generating a grounded mock test from PYQs, notes, and syllabus...');
+                const response = await fetch(buildApiUrl('/generate-mocktest'), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -66,24 +250,132 @@
                     },
                     body: JSON.stringify({
                         subject: subject,
-                        num_questions: parseInt(numQuestions)
+                        module_number: parseInt(moduleNumber),
+                        num_questions: parseInt(numQuestions),
+                        regenerate: Boolean(regenerate)
                     })
                 });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    document.getElementById('generateForm').style.display = 'none';
-                    document.getElementById('testContent').style.display = 'block';
-                    document.getElementById('testDisplay').innerHTML = `<pre>${data.test}</pre>`;
-                } else {
-                    const error = await response.json();
-                    alert('Error: ' + error.detail);
+                const data = await response.json().catch(() => ({}));
+                if (response.status === 401) {
+                    clearSession();
+                    throw new Error('Your session expired. Please log in again.');
                 }
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Could not generate test.');
+                }
+
+                currentSubject = data.subject || subject;
+                currentModule = data.module_number || parseInt(moduleNumber);
+                currentQuestions = data.questions || [];
+                if (!currentQuestions.length) {
+                    throw new Error('No questions were generated from the available resources.');
+                }
+                if (currentQuestions.length < parseInt(numQuestions)) {
+                    setStatus(`Generated ${currentQuestions.length} high-quality question(s). The system skipped the rest instead of using filler.`, 'success');
+                } else {
+                    setStatus('', '');
+                }
+
+                renderHistory('historyPanel', data.history || []);
+                document.getElementById('testTitle').textContent = `${currentSubject} - Module ${currentModule}`;
+                document.getElementById('generateForm').style.display = 'none';
+                document.getElementById('resultContent').style.display = 'none';
+                document.getElementById('testContent').style.display = 'block';
+                document.getElementById('submitButton').disabled = false;
+                isSubmitting = false;
+                renderQuestions();
+                startTimer(data.duration_seconds || 900);
             } catch (error) {
                 console.error('Error generating test:', error);
-                alert('Error generating test. Please try again.');
+                setStatus(error.message || 'Error generating test. Please try again.', 'error');
             }
         }
+
+        function collectAnswers() {
+            return currentQuestions.map((_, questionIndex) => {
+                const selected = document.querySelector(`input[name="question_${questionIndex}"]:checked`);
+                return selected ? selected.value : null;
+            });
+        }
+
+        async function submitTest(autoSubmitted = false) {
+            if (isSubmitting || !currentQuestions.length) return;
+            isSubmitting = true;
+            clearInterval(timerId);
+            document.getElementById('submitButton').disabled = true;
+
+            try {
+                const response = await fetch(buildApiUrl('/submit-mocktest'), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getStoredToken()}`
+                    },
+                    body: JSON.stringify({
+                        subject: currentSubject,
+                        module_number: currentModule,
+                        questions: currentQuestions,
+                        answers: collectAnswers()
+                    })
+                });
+
+                const data = await response.json().catch(() => ({}));
+                if (response.status === 401) {
+                    clearSession();
+                    throw new Error('Your session expired. Please log in again.');
+                }
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Could not submit test.');
+                }
+
+                showResults(data, autoSubmitted);
+            } catch (error) {
+                isSubmitting = false;
+                document.getElementById('submitButton').disabled = false;
+                setStatus(error.message || 'Error submitting test. Please try again.', 'error');
+            }
+        }
+
+        function showResults(data, autoSubmitted) {
+            document.getElementById('testContent').style.display = 'none';
+            document.getElementById('resultContent').style.display = 'block';
+            document.getElementById('resultSummary').innerHTML = `
+                <div class="score-card">
+                    <strong>${autoSubmitted ? 'Time is up. ' : ''}Score: ${data.score}/${data.total_questions}</strong>
+                    <span>${data.incorrect_questions.length} incorrect answer${data.incorrect_questions.length === 1 ? '' : 's'}</span>
+                </div>
+            `;
+
+            const mistakes = document.getElementById('mistakeList');
+            if (!data.incorrect_questions.length) {
+                mistakes.innerHTML = '<p class="status success">Excellent. No incorrect answers.</p>';
+            } else {
+                mistakes.innerHTML = data.incorrect_questions.map((item) => `
+                    <div class="question-block mock-question-card mistake-card">
+                        <h3>${item.number}. ${escapeHtml(item.question)}</h3>
+                        <p><strong>Your answer:</strong> ${escapeHtml(item.selected_answer || 'Not answered')}${item.selected_option ? ` - ${escapeHtml(item.selected_option)}` : ''}</p>
+                        <p><strong>Correct answer:</strong> ${escapeHtml(item.correct_answer)} - ${escapeHtml(item.correct_option || '')}</p>
+                    </div>
+                `).join('');
+            }
+            renderHistory('resultHistory', data.history || []);
+        }
+
+        function resetTest() {
+            clearInterval(timerId);
+            currentQuestions = [];
+            isSubmitting = false;
+            document.getElementById('generateForm').style.display = 'block';
+            document.getElementById('testContent').style.display = 'none';
+            document.getElementById('resultContent').style.display = 'none';
+        }
+
+        document.getElementById('subject').addEventListener('change', (event) => {
+            renderSubjectResources(event.target.value);
+        });
+
+        loadSubjects();
     </script>
 </body>
 

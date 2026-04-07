@@ -27,19 +27,35 @@
         <section class="study-shell" id="flashcardSection">
             <div id="generateForm">
                 <h2>Generate Flashcards</h2>
-                <div class="form-group">
-                    <label for="subject">Subject:</label>
-                    <input type="text" id="subject" placeholder="Enter subject name" required>
+                <div class="field">
+                    <label for="subject">Subject</label>
+                    <select id="subject" required>
+                        <option value="">Select a subject</option>
+                    </select>
                 </div>
-                <div class="form-group">
-                    <label for="numCards">Number of Cards:</label>
+                <div class="field" style="margin-top: 14px;">
+                    <label for="moduleNumber">Module Number</label>
+                    <select id="moduleNumber">
+                        <option value="">All modules / PYQ-focused</option>
+                        <option value="1">Module 1</option>
+                        <option value="2">Module 2</option>
+                        <option value="3">Module 3</option>
+                        <option value="4">Module 4</option>
+                        <option value="5">Module 5</option>
+                    </select>
+                </div>
+                <div class="field" style="margin-top: 14px;">
+                    <label for="numCards">Number of Cards</label>
                     <input type="number" id="numCards" min="1" max="50" value="20" required>
                 </div>
-                <button class="button" onclick="generateFlashcards()">Generate Flashcards</button>
+                <div id="subjectResources" class="study-links" hidden></div>
+                <button class="button" style="margin-top: 18px;" onclick="generateFlashcards()">Generate Flashcards</button>
+                <button class="button-secondary" style="margin-top: 18px;" onclick="generateFlashcards(true)">Regenerate</button>
             </div>
 
             <div id="flashcardContent" style="display: none;">
                 <div class="flashcard-wrap">
+                    <button class="button-secondary" style="margin-bottom: 14px;" onclick="generateFlashcards(true)">Regenerate Flashcards</button>
                     <div class="flashcard-stage">
                         <div class="flashcard" id="card" onclick="flipCard()">
                             <div class="card-face front" id="frontText"></div>
@@ -61,18 +77,67 @@
 
         let flashcards = [];
         let currentIndex = 0;
+        let availableSubjects = [];
 
-        async function generateFlashcards() {
+        function escapeHtml(value) {
+            return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                "\"": "&quot;",
+                "'": "&#39;"
+            }[character]));
+        }
+
+        async function loadSubjects() {
+            try {
+                const response = await fetch(buildApiUrl('/subjects'));
+                const data = await response.json();
+                availableSubjects = data.subjects || [];
+                const select = document.getElementById('subject');
+
+                availableSubjects.forEach((subject) => {
+                    const option = document.createElement('option');
+                    option.value = subject.name;
+                    option.textContent = subject.code ? `${subject.name} (${subject.code})` : subject.name;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading subjects:', error);
+            }
+        }
+
+        function renderSubjectResources(subjectName) {
+            const resources = document.getElementById('subjectResources');
+            const subject = availableSubjects.find((item) => item.name === subjectName);
+
+            if (!subject || !subject.files?.length) {
+                resources.hidden = true;
+                resources.innerHTML = '';
+                return;
+            }
+
+                resources.hidden = false;
+                resources.innerHTML = `
+                <strong>Use these notes while revising ${escapeHtml(subject.name)}</strong>
+                ${subject.files.map((file) => `
+                    <a class="resource-chip" href="${buildDataUrl(file.path)}" target="_blank" rel="noopener noreferrer">${escapeHtml(file.name)}</a>
+                `).join('')}
+            `;
+        }
+
+        async function generateFlashcards(regenerate = false) {
             const subject = document.getElementById('subject').value.trim();
+            const moduleNumber = document.getElementById('moduleNumber').value;
             const numCards = document.getElementById('numCards').value;
 
             if (!subject) {
-                alert('Please enter a subject name.');
+                alert('Please select a subject.');
                 return;
             }
 
             try {
-                const response = await fetch('/generate-flashcard', {
+                const response = await fetch(buildApiUrl('/generate-flashcard'), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -80,7 +145,9 @@
                     },
                     body: JSON.stringify({
                         subject: subject,
-                        num_cards: parseInt(numCards)
+                        module_number: moduleNumber ? parseInt(moduleNumber) : null,
+                        num_cards: parseInt(numCards),
+                        regenerate: Boolean(regenerate)
                     })
                 });
 
@@ -106,19 +173,21 @@
         }
 
         function parseFlashcards(content) {
-            // Simple parsing - assuming format like "1. Question: ... Answer: ..."
             const cards = [];
             const lines = content.split('\n');
             let currentCard = {};
 
             for (const line of lines) {
-                if (line.includes('Question:') || line.includes('Q:')) {
+                const frontMatch = line.match(/^\s*(?:\d+[\).\s-]*)?(?:Question|Q|Term):\s*(.+)$/i);
+                const backMatch = line.match(/^\s*(?:Answer|A|Definition):\s*(.+)$/i);
+
+                if (frontMatch) {
                     if (currentCard.question) {
                         cards.push(currentCard);
                     }
-                    currentCard = { question: line.split(':')[1]?.trim() || line, answer: '' };
-                } else if (line.includes('Answer:') || line.includes('A:')) {
-                    currentCard.answer = line.split(':')[1]?.trim() || line;
+                    currentCard = { question: frontMatch[1].trim(), answer: '' };
+                } else if (backMatch) {
+                    currentCard.answer = backMatch[1].trim();
                 }
             }
 
@@ -150,6 +219,12 @@
             currentIndex = (currentIndex - 1 + flashcards.length) % flashcards.length;
             loadCard();
         }
+
+        document.getElementById('subject').addEventListener('change', (event) => {
+            renderSubjectResources(event.target.value);
+        });
+
+        loadSubjects();
     </script>
 </body>
 

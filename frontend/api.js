@@ -1,7 +1,16 @@
 function getApiBaseUrl() {
     const { protocol, hostname, port } = window.location;
+    const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "";
 
-    if (protocol === "file:" || port === "5500") {
+    if (protocol === "file:") {
+        return "http://127.0.0.1:8000";
+    }
+
+    if (port === "5500") {
+        return `http://${hostname || "127.0.0.1"}:8000`;
+    }
+
+    if (isLocalHost && port && port !== "8000") {
         return `http://${hostname || "127.0.0.1"}:8000`;
     }
 
@@ -11,6 +20,30 @@ function getApiBaseUrl() {
 function buildApiUrl(path) {
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
     return `${getApiBaseUrl()}${normalizedPath}`;
+}
+
+function buildDataUrl(relativePath) {
+    const sanitizedPath = String(relativePath || "")
+        .split("/")
+        .filter(Boolean)
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
+
+    return buildApiUrl(`/data/${sanitizedPath}`);
+}
+
+function openDataUrl(relativePath, preferNewTab = true) {
+    const url = buildDataUrl(relativePath);
+
+    if (preferNewTab) {
+        const tab = window.open(url, "_blank");
+        if (!tab) {
+            window.location.href = url;
+        }
+        return;
+    }
+
+    window.location.href = url;
 }
 
 function saveSession(authPayload) {

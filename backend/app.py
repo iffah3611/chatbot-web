@@ -1,4 +1,6 @@
 from pathlib import Path
+import json
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +14,9 @@ from .auth import create_access_token, get_current_user, hash_password, verify_p
 from .database import Base, engine, get_db
 from .ingest import handle_uploads
 from .llm import ask_llm
+from .catalog import DATA_PATH, get_subject_catalog, get_syllabus_catalog
+from .pyq_engine import get_pyq_catalog
+from .rag_engine import get_training_status, reindex_all_pdfs
 
 Base.metadata.create_all(bind=engine)
 
@@ -81,17 +86,32 @@ def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
     return {"access_token": access_token, "token_type": "bearer", "user": user}
 
 
+@app.post("/reset-password")
+def reset_password(payload: schemas.PasswordResetRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(
+        models.User.username == payload.username,
+        models.User.email == payload.email,
+    ).first()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account matched that username and email.",
+        )
+
+    user.password = hash_password(payload.new_password)
+    db.commit()
+
+    return {"message": "Password reset successful. You can now log in with the new password."}
+
+
 @app.post("/chat", response_model=schemas.ChatReply)
 def chat(payload: schemas.ChatRequest, db: Session = Depends(get_db)):
     if not payload.message.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Message cannot be empty.")
 
-    try:
-        reply = ask_llm(payload.message)
-    except Exception:
-        reply = "I couldn't reach the assistant service right now. Please try again in a moment."
-
+    user = None
     if payload.user_id is not None:
         user = db.query(models.User).filter(
             models.User.id == payload.user_id).first()
@@ -99,6 +119,14 @@ def chat(payload: schemas.ChatRequest, db: Session = Depends(get_db)):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
+    try:
+        reply = ask_llm(payload.message, mode=payload.mode,
+                        student_name=user.username if user else None,
+                        session_key=f"user:{user.id}" if user else None)
+    except Exception:
+        reply = "I couldn't reach the assistant service right now. Please try again in a moment."
+
+    if user is not None:
         db_chat = models.Chat(
             user_id=payload.user_id,
             message=payload.message,
@@ -127,14 +155,16 @@ def get_chat_history(
 async def upload_pdf(
     files: list[UploadFile] = File(...),
     relative_paths: list[str] = Form(default=[]),
+    subject_override: str | None = Form(default=None),
     current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     if not getattr(current_user, "is_admin", False):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Admin access required.")
 
     try:
-        return await handle_uploads(files, relative_paths)
+        return await handle_uploads(files, relative_paths, subject_override=subject_override, db=db)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -145,74 +175,208 @@ async def upload_pdf(
 
 @app.get("/syllabus")
 def get_syllabus():
-    from pathlib import Path
-    data_path = Path(__file__).resolve().parent.parent / "data"
-    syllabus_path = data_path / "notes" / "syllabus"
-
-    if not syllabus_path.exists():
-        return {"subjects": []}
-
-    subjects = []
-    for pdf_file in syllabus_path.glob("*.pdf"):
-        subject_name = pdf_file.stem
-        subjects.append({
-            "name": subject_name,
-            "file": str(pdf_file.relative_to(data_path))
-        })
-
-    return {"subjects": subjects}
+    return {"subjects": get_syllabus_catalog()}
 
 
 @app.get("/notes")
 def get_notes():
-    from pathlib import Path
-    data_path = Path(__file__).resolve().parent.parent / "data"
-    notes_path = data_path / "notes"
+    return {"subjects": get_subject_catalog()}
 
-    if not notes_path.exists():
-        return {"subjects": []}
 
-    subjects = []
-    for item in notes_path.iterdir():
-        if item.is_file() and item.suffix.lower() == ".pdf":
-            subject_name = item.stem
-            subjects.append({
-                "name": subject_name,
-                "files": [str(item.relative_to(data_path))]
-            })
-        elif item.is_dir() and item.name != "syllabus":
-            subject_name = item.name
-            files = [str(f.relative_to(data_path)) for f in item.glob("*.pdf")]
-            if files:
-                subjects.append({
-                    "name": subject_name,
-                    "files": files
-                })
+@app.get("/subjects")
+def get_subjects():
+    return {"subjects": get_subject_catalog(), "syllabus": get_syllabus_catalog()}
 
-    return {"subjects": subjects}
+
+@app.get("/pyqs")
+def get_pyqs(db: Session = Depends(get_db)):
+    return {"subjects": get_pyq_catalog(db=db)}
+
+
+@app.post("/train-rag")
+def train_rag(current_user: models.User = Depends(get_current_user)):
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required.",
+        )
+
+    result = reindex_all_pdfs(force=True)
+    return {
+        "message": "Training complete. Local study documents were reindexed for AI retrieval.",
+        "stats": result,
+    }
+
+
+@app.get("/train-rag-status")
+def train_rag_status(current_user: models.User = Depends(get_current_user)):
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required.",
+        )
+    return get_training_status()
 
 
 @app.post("/generate-mocktest")
-def generate_mocktest(request: schemas.MockTestRequest, current_user: models.User = Depends(get_current_user)):
-    # Generate mock test based on subject
-    # For now, use LLM to generate questions
-    from .llm import ask_llm
+def generate_mocktest(
+    request: schemas.MockTestRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from .llm import generate_structured_mock_test_from_context
+    from .pyq_engine import query_pyq_context
+    from .rag_engine import query_module_context, query_syllabus_context
 
-    prompt = f"Generate a mock test for {request.subject} with {request.num_questions} questions. Include multiple choice and short answer questions."
-    test_content = ask_llm(prompt)
+    pyq_context = query_pyq_context(request.subject, query=f"module {request.module_number} mock test exam pattern", k=12)
+    notes_context = query_module_context(request.subject, request.module_number, k=8)
+    syllabus_context = query_syllabus_context(request.subject, request.module_number, k=4)
+    context = (
+        f"PYQ knowledge (pattern + difficulty, highest priority):\n{pyq_context}\n\n"
+        f"Notes knowledge (concept clarity):\n{notes_context}\n\n"
+        f"Syllabus knowledge (topic boundaries):\n{syllabus_context}"
+    )
+    questions = generate_structured_mock_test_from_context(
+        request.subject,
+        request.module_number,
+        context,
+        num_questions=request.num_questions,
+        regenerate=request.regenerate,
+    )
+    if not questions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not generate a grounded mock test from the available resources.",
+        )
 
-    return {"test": test_content}
+    attempts = db_attempt_summary(db, current_user.id, request.subject, request.module_number)
+
+    return {
+        "duration_seconds": 15 * 60,
+        "subject": request.subject,
+        "module_number": request.module_number,
+        "questions": questions,
+        "history": attempts,
+    }
+
+
+def db_attempt_summary(db: Session, user_id: int, subject: str, module_number: int) -> list[dict]:
+    attempts = (
+        db.query(models.MockTestAttempt)
+        .filter(
+            models.MockTestAttempt.user_id == user_id,
+            models.MockTestAttempt.subject == subject,
+            models.MockTestAttempt.module_number == module_number,
+        )
+        .order_by(models.MockTestAttempt.id.desc())
+        .limit(10)
+        .all()
+    )
+    return [
+        {
+            "id": attempt.id,
+            "score": attempt.score,
+            "total_questions": attempt.total_questions,
+            "created_at": attempt.created_at,
+        }
+        for attempt in attempts
+    ]
+
+
+@app.post("/submit-mocktest")
+def submit_mocktest(
+    request: schemas.MockTestSubmitRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if len(request.answers) != len(request.questions):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Answer count does not match question count.",
+        )
+
+    incorrect = []
+    score = 0
+    for index, question in enumerate(request.questions):
+        selected = request.answers[index]
+        is_correct = selected == question.correct_answer
+        if is_correct:
+            score += 1
+            continue
+        incorrect.append(
+            {
+                "number": index + 1,
+                "question": question.question,
+                "selected_answer": selected,
+                "correct_answer": question.correct_answer,
+                "selected_option": question.options.get(selected or "", "Not answered"),
+                "correct_option": question.options.get(question.correct_answer, ""),
+            }
+        )
+
+    attempt = models.MockTestAttempt(
+        user_id=current_user.id,
+        subject=request.subject,
+        module_number=request.module_number,
+        score=score,
+        total_questions=len(request.questions),
+        incorrect_questions=json.dumps(incorrect, ensure_ascii=True),
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add(attempt)
+    db.commit()
+    db.refresh(attempt)
+
+    history = (
+        db.query(models.MockTestAttempt)
+        .filter(
+            models.MockTestAttempt.user_id == current_user.id,
+            models.MockTestAttempt.subject == request.subject,
+            models.MockTestAttempt.module_number == request.module_number,
+        )
+        .order_by(models.MockTestAttempt.id.desc())
+        .limit(10)
+        .all()
+    )
+
+    return {
+        "score": score,
+        "total_questions": len(request.questions),
+        "incorrect_questions": incorrect,
+        "history": [
+            {
+                "id": item.id,
+                "score": item.score,
+                "total_questions": item.total_questions,
+                "created_at": item.created_at,
+            }
+            for item in history
+        ],
+    }
 
 
 @app.post("/generate-flashcard")
 def generate_flashcard(request: schemas.FlashCardRequest, current_user: models.User = Depends(get_current_user)):
-    # Generate flashcards based on subject
-    from .llm import ask_llm
+    from .llm import generate_flashcards_from_context
+    from .pyq_engine import query_pyq_context
+    from .rag_engine import query_module_context, query_subject_notes_context
 
-    prompt = f"Generate flashcards for {request.subject}. Create {request.num_cards} flashcards with key concepts, definitions, and important points."
-    flashcard_content = ask_llm(prompt)
+    pyq_context = query_pyq_context(request.subject, k=12)
+    if request.module_number is not None:
+        notes_context = query_module_context(request.subject, request.module_number, k=8)
+    else:
+        notes_context = query_subject_notes_context(request.subject, query="flashcards key terms common concepts", k=6)
+    context = f"PYQ knowledge (high priority):\n{pyq_context}\n\nNotes knowledge:\n{notes_context}"
+    flashcard_content = generate_flashcards_from_context(
+        request.subject,
+        request.module_number,
+        context,
+        num_cards=request.num_cards,
+        regenerate=request.regenerate,
+    )
 
     return {"flashcards": flashcard_content}
 
 
+app.mount("/data", StaticFiles(directory=DATA_PATH), name="data")
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

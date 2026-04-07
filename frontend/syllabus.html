@@ -10,7 +10,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
-<body>
+<body class="syllabus-page">
     <main class="page-shell">
         <div class="page-header">
             <div>
@@ -25,6 +25,16 @@
         </div>
 
         <section class="study-shell">
+            <div class="study-toolbar">
+                <label class="search-field" for="syllabusSearch">
+                    <i data-lucide="search"></i>
+                    <input id="syllabusSearch" type="search" placeholder="Search by subject name">
+                </label>
+                <div class="toolbar-stats">
+                    <span class="stat-chip" id="syllabusSubjectCount">0 subjects</span>
+                    <span class="stat-chip" id="syllabusDocCount">0 documents</span>
+                </div>
+            </div>
             <div class="subject-list" id="subjectList">
                 <!-- Subjects will be loaded here -->
             </div>
@@ -34,48 +44,187 @@
     <script>
         lucide.createIcons();
 
+        if (typeof buildDataUrl !== "function") {
+            function getApiBaseUrl() {
+                const { protocol, hostname, port } = window.location;
+                const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "";
+
+                if (protocol === "file:") {
+                    return "http://127.0.0.1:8000";
+                }
+
+                if (port === "5500") {
+                    return `http://${hostname || "127.0.0.1"}:8000`;
+                }
+
+                if (isLocalHost && port && port !== "8000") {
+                    return `http://${hostname || "127.0.0.1"}:8000`;
+                }
+
+                return "";
+            }
+
+            function buildApiUrl(path) {
+                const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+                return `${getApiBaseUrl()}${normalizedPath}`;
+            }
+
+            function buildDataUrl(relativePath) {
+                const sanitizedPath = String(relativePath || "")
+                    .split("/")
+                    .filter(Boolean)
+                    .map((segment) => encodeURIComponent(segment))
+                    .join("/");
+
+                return buildApiUrl(`/data/${sanitizedPath}`);
+            }
+
+            function openDataUrl(relativePath, preferNewTab = true) {
+                const url = buildDataUrl(relativePath);
+                if (preferNewTab) {
+                    const tab = window.open(url, "_blank");
+                    if (!tab) {
+                        window.location.href = url;
+                    }
+                    return;
+                }
+                window.location.href = url;
+            }
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                "\"": "&quot;",
+                "'": "&#39;"
+            }[character]));
+        }
+
+        const syllabusState = {
+            subjects: []
+        };
+
+        function setSyllabusStats(subjects) {
+            const subjectCount = subjects.length;
+            document.getElementById("syllabusSubjectCount").textContent = `${subjectCount} subject${subjectCount === 1 ? "" : "s"}`;
+            document.getElementById("syllabusDocCount").textContent = `${subjectCount} document${subjectCount === 1 ? "" : "s"}`;
+        }
+
+        function renderSyllabus(subjects) {
+            const subjectList = document.getElementById('subjectList');
+            subjectList.innerHTML = '';
+
+            if (subjects.length === 0) {
+                subjectList.innerHTML = `
+                    <div class="state-card">
+                        <i data-lucide="search-x"></i>
+                        <p>No matching syllabus documents found.</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            subjects.forEach(subject => {
+                const subjectCard = document.createElement('div');
+                subjectCard.className = 'subject-card syllabus-card';
+
+                const header = document.createElement('div');
+                header.className = 'subject-main';
+                header.innerHTML = `
+                    <div class="subject-icon"><i data-lucide="book-open-check"></i></div>
+                    <div>
+                        <h3>${escapeHtml(subject.name)}</h3>
+                        <p>Open the official syllabus outline.</p>
+                    </div>
+                `;
+                subjectCard.appendChild(header);
+
+                const openLink = document.createElement('a');
+                openLink.className = 'resource-chip';
+                openLink.href = buildDataUrl(subject.path);
+                openLink.target = '_blank';
+                openLink.rel = 'noopener noreferrer';
+                openLink.innerHTML = '<span>Open PDF</span><i data-lucide="arrow-up-right"></i>';
+                openLink.onclick = (e) => {
+                    e.preventDefault();
+                    openDataUrl(subject.path);
+                };
+                subjectCard.appendChild(openLink);
+
+                subjectList.appendChild(subjectCard);
+            });
+
+            lucide.createIcons();
+        }
+
+        function filterSyllabus(query) {
+            const searchQuery = query.trim().toLowerCase();
+
+            if (!searchQuery) {
+                renderSyllabus(syllabusState.subjects);
+                return;
+            }
+
+            const filtered = syllabusState.subjects.filter((subject) =>
+                String(subject.name || "").toLowerCase().includes(searchQuery)
+            );
+
+            renderSyllabus(filtered);
+        }
+
         async function loadSyllabus() {
             try {
-                const response = await fetch('/syllabus');
+                document.getElementById('subjectList').innerHTML = `
+                    <div class="state-card">
+                        <i data-lucide="loader-circle" class="spin"></i>
+                        <p>Loading syllabus documents...</p>
+                    </div>
+                `;
+                lucide.createIcons();
+
+                const response = await fetch(buildApiUrl('/syllabus'));
+                if (!response.ok) {
+                    throw new Error(`Request failed (${response.status})`);
+                }
                 const data = await response.json();
+                syllabusState.subjects = Array.isArray(data.subjects) ? data.subjects : [];
+                setSyllabusStats(syllabusState.subjects);
 
-                const subjectList = document.getElementById('subjectList');
-                subjectList.innerHTML = '';
-
-                if (data.subjects.length === 0) {
-                    subjectList.innerHTML = '<p>No syllabus documents available.</p>';
+                if (syllabusState.subjects.length === 0) {
+                    document.getElementById('subjectList').innerHTML = `
+                        <div class="state-card">
+                            <i data-lucide="folder-open-dot"></i>
+                            <p>No syllabus documents available yet.</p>
+                        </div>
+                    `;
+                    lucide.createIcons();
                     return;
                 }
 
-                data.subjects.forEach(subject => {
-                    const subjectCard = document.createElement('div');
-                    subjectCard.className = 'subject-card';
-                    subjectCard.onclick = () => openPDF(subject.file);
-
-                    subjectCard.innerHTML = `
-                        <div class="subject-main">
-                            <div class="subject-icon"><i data-lucide="book"></i></div>
-                            <div>
-                                <h3>${subject.name}</h3>
-                                <p>Open the official syllabus outline.</p>
-                            </div>
-                        </div>
-                        <span class="pill">PDF</span>
-                    `;
-
-                    subjectList.appendChild(subjectCard);
-                });
-
-                lucide.createIcons();
+                renderSyllabus(syllabusState.subjects);
             } catch (error) {
                 console.error('Error loading syllabus:', error);
-                document.getElementById('subjectList').innerHTML = '<p>Error loading syllabus.</p>';
+                const message = error?.message ? `Error loading syllabus: ${error.message}` : 'Error loading syllabus.';
+                document.getElementById('subjectList').innerHTML = `
+                    <div class="state-card error">
+                        <i data-lucide="triangle-alert"></i>
+                        <p>${message}</p>
+                    </div>
+                `;
+                lucide.createIcons();
             }
         }
 
         function openPDF(file) {
-            window.open("../data/" + file, "_blank");
+            window.open(buildDataUrl(file), "_blank");
         }
+
+        document.getElementById("syllabusSearch").addEventListener("input", (event) => {
+            filterSyllabus(event.target.value);
+        });
 
         loadSyllabus();
     </script>

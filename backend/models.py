@@ -27,3 +27,29 @@ class Chat(Base):
     response = Column(Text, nullable=False)
 
     user = relationship("User", back_populates="chats")
+
+
+class PreviousQuestionPaper(Base):
+    __tablename__ = "previous_question_papers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    subject = Column(String, nullable=False, index=True)
+    subject_code = Column(String, nullable=True, index=True)
+    year = Column(Integer, nullable=True, index=True)
+    filename = Column(String, nullable=False)
+    file_path = Column(String, unique=True, nullable=False, index=True)
+    question_count = Column(Integer, nullable=False, default=0)
+    uploaded_at = Column(String, nullable=False)
+
+
+class MockTestAttempt(Base):
+    __tablename__ = "mock_test_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    subject = Column(String, nullable=False, index=True)
+    module_number = Column(Integer, nullable=True, index=True)
+    score = Column(Integer, nullable=False)
+    total_questions = Column(Integer, nullable=False)
+    incorrect_questions = Column(Text, nullable=False, default="[]")
+    created_at = Column(String, nullable=False)

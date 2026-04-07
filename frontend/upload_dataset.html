@@ -19,7 +19,7 @@
                     Admin upload
                 </p>
                 <h1 class="page-title">Upload PDF Dataset</h1>
-                <p class="page-copy">Add new study material and push it into the assistant knowledge base.</p>
+                <p class="page-copy">Add notes or PYQ papers. The system classifies and stores them separately.</p>
             </div>
             <a class="button-ghost" href="front.html">Back to Dashboard</a>
         </div>
@@ -29,11 +29,49 @@
                 <div class="field">
                     <label for="fileInput">Choose arranged dataset folder</label>
                     <input type="file" id="fileInput" accept=".pdf" multiple webkitdirectory directory>
-                    <p class="helper-text" style="margin-top: 8px;">Select the main folder. Only PDF files inside it will be uploaded with their folder structure preserved.</p>
+                    <p class="helper-text" style="margin-top: 8px;">Select the main folder. Notes are stored by module; PYQs are stored separately under the subject.</p>
+                </div>
+                <div class="field" style="margin-top: 14px;">
+                    <label for="subjectOverride">Subject override</label>
+                    <input type="text" id="subjectOverride" placeholder="Use if filenames do not clearly include the subject">
+                    <p class="helper-text" style="margin-top: 8px;">Notes need a module tag such as Module 1, mod_2, or M3. PYQ papers do not need module numbers.</p>
                 </div>
             </div>
 
             <button class="button" style="margin-top: 18px;" onclick="uploadFile()">Upload Folder and Index</button>
+            <button class="button-secondary" style="margin-top: 12px;" onclick="trainModel()">Train AI Model</button>
+
+            <div class="upload-progress" id="trainStatusPanel" style="margin-top: 14px;">
+                <div class="upload-progress-header">
+                    <strong>Train Status</strong>
+                    <button class="button-ghost" type="button" onclick="loadTrainStatus()">Refresh</button>
+                </div>
+                <div class="upload-progress-meta">
+                    <span id="statusLastTrained">Last trained: Not yet</span>
+                    <span id="statusIndexed">Indexed: 0/0</span>
+                    <span id="statusCache">Cached chunks: 0</span>
+                </div>
+                <p class="helper-text" id="statusHint" style="margin-top: 10px;">
+                    Use Train AI Model after uploading new PDFs to improve answer quality.
+                </p>
+            </div>
+
+            <div class="upload-progress" id="uploadProgress" hidden>
+                <div class="upload-progress-header">
+                    <strong id="progressTitle">Preparing upload...</strong>
+                    <span id="progressPercent">0%</span>
+                </div>
+                <div class="progress-track" aria-hidden="true">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="upload-progress-meta">
+                    <span id="progressBytes">0 MB / 0 MB</span>
+                    <span id="progressFiles">0 files selected</span>
+                </div>
+                <p class="helper-text" id="progressHint" style="margin-top: 10px;">
+                    Upload progress will appear here. Indexing can still take extra time after the file transfer finishes.
+                </p>
+            </div>
 
             <div class="status" id="message"></div>
         </section>
@@ -45,6 +83,19 @@
         const storedUser = getStoredUser();
         const messageDiv = document.getElementById("message");
         const fileInput = document.getElementById("fileInput");
+        const subjectOverride = document.getElementById("subjectOverride");
+        const uploadProgress = document.getElementById("uploadProgress");
+        const progressTitle = document.getElementById("progressTitle");
+        const progressPercent = document.getElementById("progressPercent");
+        const progressFill = document.getElementById("progressFill");
+        const progressBytes = document.getElementById("progressBytes");
+        const progressFiles = document.getElementById("progressFiles");
+        const progressHint = document.getElementById("progressHint");
+        const statusLastTrained = document.getElementById("statusLastTrained");
+        const statusIndexed = document.getElementById("statusIndexed");
+        const statusCache = document.getElementById("statusCache");
+        const statusHint = document.getElementById("statusHint");
+        let authRedirectScheduled = false;
 
         if (!storedUser) {
             messageDiv.innerHTML = "Please log in first.";
@@ -56,7 +107,68 @@
             fileInput.disabled = true;
         }
 
-        async function uploadFile() {
+        function formatDateTime(value) {
+            if (!value) {
+                return "Not yet";
+            }
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                return value;
+            }
+            return date.toLocaleString();
+        }
+
+        function formatBytes(bytes) {
+            if (!Number.isFinite(bytes) || bytes <= 0) {
+                return "0 MB";
+            }
+
+            const units = ["B", "KB", "MB", "GB"];
+            let value = bytes;
+            let unitIndex = 0;
+
+            while (value >= 1024 && unitIndex < units.length - 1) {
+                value /= 1024;
+                unitIndex += 1;
+            }
+
+            return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+        }
+
+        function setProgress(percent, loadedBytes, totalBytes, fileCount, title, hint) {
+            uploadProgress.hidden = false;
+            progressTitle.textContent = title;
+            progressPercent.textContent = `${percent}%`;
+            progressFill.style.width = `${percent}%`;
+            progressBytes.textContent = `${formatBytes(loadedBytes)} / ${formatBytes(totalBytes)}`;
+            progressFiles.textContent = `${fileCount} PDF file${fileCount === 1 ? "" : "s"} selected`;
+            progressHint.textContent = hint;
+        }
+
+        function resetProgress() {
+            uploadProgress.hidden = true;
+            progressFill.style.width = "0%";
+            progressPercent.textContent = "0%";
+            progressTitle.textContent = "Preparing upload...";
+            progressBytes.textContent = "0 MB / 0 MB";
+            progressFiles.textContent = "0 files selected";
+        }
+
+        function handleAuthExpiry(userMessage = "Session expired. Please log in again.") {
+            clearSession();
+            messageDiv.innerHTML = userMessage;
+            messageDiv.className = "status error";
+            statusHint.textContent = userMessage;
+
+            if (!authRedirectScheduled) {
+                authRedirectScheduled = true;
+                setTimeout(() => {
+                    window.location.href = "login.html";
+                }, 1000);
+            }
+        }
+
+        function uploadFile() {
             if (!storedUser || !storedUser.is_admin) {
                 messageDiv.innerHTML = "Only admins can upload datasets.";
                 messageDiv.className = "status error";
@@ -91,35 +203,190 @@
                 formData.append("files", file, file.name);
                 formData.append("relative_paths", file.webkitRelativePath || file.name);
             });
+            if (subjectOverride.value.trim()) {
+                formData.append("subject_override", subjectOverride.value.trim());
+            }
 
+            const totalBytes = pdfFiles.reduce((sum, file) => sum + file.size, 0);
             messageDiv.innerHTML = `Uploading ${pdfFiles.length} PDF file(s)...`;
+            messageDiv.className = "status";
+            setProgress(
+                0,
+                0,
+                totalBytes,
+                pdfFiles.length,
+                "Starting upload...",
+                "Your files are being sent to the server."
+            );
+
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", buildApiUrl("/upload"));
+            xhr.setRequestHeader("Authorization", "Bearer " + token);
+
+            xhr.upload.onprogress = function (event) {
+                if (!event.lengthComputable) {
+                    return;
+                }
+
+                const percent = Math.min(100, Math.round((event.loaded / event.total) * 100));
+                setProgress(
+                    percent,
+                    event.loaded,
+                    event.total,
+                    pdfFiles.length,
+                    percent >= 100 ? "Upload complete. Indexing files..." : "Uploading files...",
+                    percent >= 100
+                        ? "The files reached the server. It is now saving and indexing them, which can take a bit longer."
+                        : "Your files are being transferred to the server."
+                );
+            };
+
+            xhr.onload = function () {
+                let result = {};
+
+                try {
+                    result = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+                } catch (error) {
+                    result = {};
+                }
+
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    setProgress(
+                        100,
+                        totalBytes,
+                        totalBytes,
+                        pdfFiles.length,
+                        "Upload and indexing finished",
+                        "All selected files have been uploaded and processed."
+                    );
+                    messageDiv.innerHTML = result.message || "Dataset uploaded and indexed successfully. New content is now available to the chatbot.";
+                    messageDiv.className = "status success";
+                    fileInput.value = "";
+                    return;
+                }
+
+                if (xhr.status === 401) {
+                    resetProgress();
+                    handleAuthExpiry();
+                    return;
+                }
+
+                resetProgress();
+                messageDiv.innerHTML = result.detail || "Upload failed.";
+                messageDiv.className = "status error";
+            };
+
+            xhr.onerror = function () {
+                resetProgress();
+                messageDiv.innerHTML = "Server connection error.";
+                messageDiv.className = "status error";
+            };
+
+            xhr.onloadstart = function () {
+                setProgress(
+                    0,
+                    0,
+                    totalBytes,
+                    pdfFiles.length,
+                    "Starting upload...",
+                    "Connection opened. Preparing to send files."
+                );
+            };
+
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === XMLHttpRequest.HEADERS_RECEIVED || xhr.readyState === XMLHttpRequest.LOADING) {
+                    if (progressPercent.textContent === "100%") {
+                        progressTitle.textContent = "Upload complete. Indexing files...";
+                        progressHint.textContent = "The server is processing the uploaded PDFs. This part may take longer than the upload itself.";
+                    }
+                }
+            };
+
+            xhr.send(formData);
+        }
+
+        async function trainModel() {
+            if (!storedUser || !storedUser.is_admin) {
+                messageDiv.innerHTML = "Only admins can train the AI model.";
+                messageDiv.className = "status error";
+                return;
+            }
+
+            const token = localStorage.getItem("access_token");
+            if (!token) {
+                messageDiv.innerHTML = "You must be logged in as admin.";
+                messageDiv.className = "status error";
+                return;
+            }
+
+            messageDiv.innerHTML = "Training in progress... Reindexing all uploaded PDFs.";
             messageDiv.className = "status";
 
             try {
-                const response = await fetch(buildApiUrl("/upload"), {
+                const response = await fetch(buildApiUrl("/train-rag"), {
                     method: "POST",
                     headers: {
-                        "Authorization": "Bearer " + token
-                    },
-                    body: formData
+                        "Authorization": `Bearer ${token}`
+                    }
                 });
 
-                const result = await response.json();
-
+                const result = await response.json().catch(() => ({}));
+                if (response.status === 401) {
+                    handleAuthExpiry();
+                    return;
+                }
                 if (!response.ok) {
-                    messageDiv.innerHTML = result.detail || "Upload failed.";
-                    messageDiv.className = "status error";
-                } else {
-                    messageDiv.innerHTML = result.message || "Dataset uploaded and indexed successfully.";
-                    messageDiv.className = "status success";
-                    fileInput.value = "";
+                    throw new Error(result.detail || "Training failed.");
                 }
 
+                const stats = result.stats || {};
+                messageDiv.innerHTML = `${result.message} Indexed ${stats.indexed_files || 0}/${stats.total_files || 0} files.`;
+                messageDiv.className = "status success";
+                await loadTrainStatus();
             } catch (error) {
-                messageDiv.innerHTML = "Server connection error.";
+                messageDiv.innerHTML = error.message || "Training failed.";
                 messageDiv.className = "status error";
             }
         }
+
+        async function loadTrainStatus() {
+            if (!storedUser || !storedUser.is_admin) {
+                return;
+            }
+
+            const token = localStorage.getItem("access_token");
+            if (!token) {
+                return;
+            }
+
+            try {
+                const response = await fetch(buildApiUrl("/train-rag-status"), {
+                    headers: {
+                        "Authorization": `Bearer ${token}`
+                    }
+                });
+                const result = await response.json().catch(() => ({}));
+                if (response.status === 401) {
+                    handleAuthExpiry();
+                    return;
+                }
+                if (!response.ok) {
+                    throw new Error(result.detail || "Unable to fetch train status.");
+                }
+
+                const stats = result.last_stats || {};
+                statusLastTrained.textContent = `Last trained: ${formatDateTime(result.last_trained_at)}`;
+                statusIndexed.textContent = `Indexed: ${stats.indexed_files || 0}/${stats.total_files || result.current_total_files || 0}`;
+                statusCache.textContent = `Cached chunks: ${result.current_cached_files || 0}`;
+                statusHint.textContent = result.trained
+                    ? "Model is trained on current cached dataset. Retrain after adding or replacing PDFs."
+                    : "No training run yet. Click Train AI Model to build the retrieval cache.";
+            } catch (error) {
+                statusHint.textContent = "Unable to load train status right now.";
+            }
+        }
+
+        loadTrainStatus();
     </script>
 </body>
 

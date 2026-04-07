@@ -10,7 +10,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
-<body>
+<body class="notes-page">
     <main class="page-shell">
         <div class="page-header">
             <div>
@@ -25,6 +25,16 @@
         </div>
 
         <section class="study-shell">
+            <div class="study-toolbar">
+                <label class="search-field" for="notesSearch">
+                    <i data-lucide="search"></i>
+                    <input id="notesSearch" type="search" placeholder="Search by subject, code, or file name">
+                </label>
+                <div class="toolbar-stats">
+                    <span class="stat-chip" id="subjectCount">0 subjects</span>
+                    <span class="stat-chip" id="noteCount">0 notes</span>
+                </div>
+            </div>
             <div class="subject-list" id="subjectList">
                 <!-- Subjects will be loaded here -->
             </div>
@@ -34,82 +44,254 @@
     <script>
         lucide.createIcons();
 
-        async function loadNotes() {
-            try {
-                const response = await fetch('/notes');
-                const data = await response.json();
+        if (typeof buildDataUrl !== "function") {
+            function getApiBaseUrl() {
+                const { protocol, hostname, port } = window.location;
+                const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "";
 
-                const subjectList = document.getElementById('subjectList');
-                subjectList.innerHTML = '';
-
-                if (data.subjects.length === 0) {
-                    subjectList.innerHTML = '<p>No notes available.</p>';
-                    return;
+                if (protocol === "file:") {
+                    return "http://127.0.0.1:8000";
                 }
 
-                data.subjects.forEach(subject => {
-                    const subjectCard = document.createElement('div');
-                    subjectCard.className = 'subject-card';
+                if (port === "5500") {
+                    return `http://${hostname || "127.0.0.1"}:8000`;
+                }
 
-                    let filesHtml = '';
-                    if (subject.files.length === 1) {
-                        subjectCard.onclick = () => openPDF(subject.files[0]);
-                        filesHtml = '<span class="pill">PDF</span>';
-                    } else {
-                        // For multiple files, show expandable
-                        subjectCard.className += ' expandable';
-                        subjectCard.onclick = () => toggleFiles(subjectCard);
-                        filesHtml = `<span class="pill">${subject.files.length} files</span>`;
+                if (isLocalHost && port && port !== "8000") {
+                    return `http://${hostname || "127.0.0.1"}:8000`;
+                }
 
-                        const filesList = document.createElement('div');
-                        filesList.className = 'files-list';
-                        filesList.style.display = 'none';
+                return "";
+            }
 
-                        subject.files.forEach(file => {
-                            const fileItem = document.createElement('div');
-                            fileItem.className = 'file-item';
-                            fileItem.onclick = (e) => {
-                                e.stopPropagation();
-                                openPDF(file);
-                            };
-                            fileItem.innerHTML = `<i data-lucide="file-text"></i> ${file.split('/').pop()}`;
-                            filesList.appendChild(fileItem);
-                        });
+            function buildApiUrl(path) {
+                const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+                return `${getApiBaseUrl()}${normalizedPath}`;
+            }
 
-                        subjectCard.appendChild(filesList);
+            function buildDataUrl(relativePath) {
+                const sanitizedPath = String(relativePath || "")
+                    .split("/")
+                    .filter(Boolean)
+                    .map((segment) => encodeURIComponent(segment))
+                    .join("/");
+
+                return buildApiUrl(`/data/${sanitizedPath}`);
+            }
+
+            function openDataUrl(relativePath, preferNewTab = true) {
+                const url = buildDataUrl(relativePath);
+                if (preferNewTab) {
+                    const tab = window.open(url, "_blank");
+                    if (!tab) {
+                        window.location.href = url;
                     }
-
-                    subjectCard.innerHTML = `
-                        <div class="subject-main">
-                            <div class="subject-icon"><i data-lucide="book"></i></div>
-                            <div>
-                                <h3>${subject.name}</h3>
-                                <p>Notes for ${subject.name}</p>
-                            </div>
-                        </div>
-                        ${filesHtml}
-                    ` + (subject.files.length > 1 ? subjectCard.innerHTML : '');
-
-                    subjectList.appendChild(subjectCard);
-                });
-
-                lucide.createIcons();
-            } catch (error) {
-                console.error('Error loading notes:', error);
-                document.getElementById('subjectList').innerHTML = '<p>Error loading notes.</p>';
+                    return;
+                }
+                window.location.href = url;
             }
         }
 
-        function toggleFiles(card) {
+        function escapeHtml(value) {
+            return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                "\"": "&quot;",
+                "'": "&#39;"
+            }[character]));
+        }
+
+        const notesState = {
+            subjects: []
+        };
+
+        function setNotesStats(subjects) {
+            const subjectCount = subjects.length;
+            const noteCount = subjects.reduce((total, subject) => {
+                const files = Array.isArray(subject.files) ? subject.files : [];
+                return total + files.length;
+            }, 0);
+
+            document.getElementById("subjectCount").textContent = `${subjectCount} subject${subjectCount === 1 ? "" : "s"}`;
+            document.getElementById("noteCount").textContent = `${noteCount} note${noteCount === 1 ? "" : "s"}`;
+        }
+
+        function renderNotes(subjects) {
+            const subjectList = document.getElementById("subjectList");
+            subjectList.innerHTML = "";
+
+            if (subjects.length === 0) {
+                subjectList.innerHTML = `
+                    <div class="state-card">
+                        <i data-lucide="search-x"></i>
+                        <p>No matching notes found.</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            subjects.forEach(subject => {
+                const subjectCard = document.createElement('div');
+                subjectCard.className = 'subject-card';
+                const fileCount = Array.isArray(subject.files) ? subject.files.length : 0;
+                if (fileCount > 0) {
+                    subjectCard.classList.add('stacked');
+                }
+                const noteFiles = Array.isArray(subject.files) ? subject.files : [];
+                const codeLabel = subject.code
+                    ? `<p>${escapeHtml(subject.code)} &bull; ${fileCount} note${fileCount === 1 ? '' : 's'}</p>`
+                    : `<p>${fileCount} note${fileCount === 1 ? '' : 's'} available</p>`;
+
+                const header = document.createElement('div');
+                header.className = 'subject-main';
+                header.innerHTML = `
+                    <div class="subject-icon"><i data-lucide="book"></i></div>
+                    <div>
+                        <h3>${escapeHtml(subject.name)}</h3>
+                        ${codeLabel}
+                    </div>
+                `;
+                subjectCard.appendChild(header);
+
+                if (fileCount > 0) {
+                    subjectCard.classList.add('expandable');
+                    const filesListId = `notes-files-${Math.random().toString(36).slice(2, 9)}`;
+
+                    const toggleButton = document.createElement('button');
+                    toggleButton.type = 'button';
+                    toggleButton.className = 'pill notes-toggle';
+                    toggleButton.setAttribute('aria-expanded', 'false');
+                    toggleButton.setAttribute('aria-controls', filesListId);
+                    toggleButton.innerHTML = '<span>Show notes</span><i data-lucide="chevron-down"></i>';
+                    toggleButton.onclick = () => toggleFiles(subjectCard, toggleButton);
+                    subjectCard.appendChild(toggleButton);
+
+                    const filesList = document.createElement('div');
+                    filesList.className = 'files-list';
+                    filesList.id = filesListId;
+                    filesList.style.display = 'none';
+
+                    noteFiles.forEach(file => {
+                        const fileItem = document.createElement('a');
+                        fileItem.className = 'file-item';
+                        fileItem.href = buildDataUrl(file.path);
+                        fileItem.target = '_blank';
+                        fileItem.rel = 'noopener noreferrer';
+                        fileItem.innerHTML = `
+                            <span class="file-label">
+                                <i data-lucide="file-text"></i>
+                                ${escapeHtml(file.name)}
+                            </span>
+                            <i data-lucide="arrow-up-right"></i>
+                        `;
+                        fileItem.onclick = (e) => {
+                            e.preventDefault();
+                            openDataUrl(file.path);
+                        };
+                        filesList.appendChild(fileItem);
+                    });
+
+                    subjectCard.appendChild(filesList);
+                } else {
+                    const empty = document.createElement('span');
+                    empty.className = 'pill';
+                    empty.textContent = 'No PDFs';
+                    subjectCard.appendChild(empty);
+                }
+
+                subjectList.appendChild(subjectCard);
+            });
+
+            lucide.createIcons();
+        }
+
+        function filterNotes(query) {
+            const searchQuery = query.trim().toLowerCase();
+
+            if (!searchQuery) {
+                renderNotes(notesState.subjects);
+                return;
+            }
+
+            const filtered = notesState.subjects.filter((subject) => {
+                const files = Array.isArray(subject.files) ? subject.files : [];
+                const haystack = [
+                    subject.name,
+                    subject.code,
+                    ...files.map((file) => file.name)
+                ]
+                    .filter(Boolean)
+                    .join(" ")
+                    .toLowerCase();
+
+                return haystack.includes(searchQuery);
+            });
+
+            renderNotes(filtered);
+        }
+
+        async function loadNotes() {
+            try {
+                document.getElementById('subjectList').innerHTML = `
+                    <div class="state-card">
+                        <i data-lucide="loader-circle" class="spin"></i>
+                        <p>Loading your notes...</p>
+                    </div>
+                `;
+                lucide.createIcons();
+
+                const response = await fetch(buildApiUrl('/notes'));
+                if (!response.ok) {
+                    throw new Error(`Request failed (${response.status})`);
+                }
+                const data = await response.json();
+                notesState.subjects = Array.isArray(data.subjects) ? data.subjects : [];
+                setNotesStats(notesState.subjects);
+
+                if (notesState.subjects.length === 0) {
+                    document.getElementById('subjectList').innerHTML = `
+                        <div class="state-card">
+                            <i data-lucide="folder-open-dot"></i>
+                            <p>No notes available yet.</p>
+                        </div>
+                    `;
+                    lucide.createIcons();
+                    return;
+                }
+
+                renderNotes(notesState.subjects);
+            } catch (error) {
+                console.error('Error loading notes:', error);
+                const message = error?.message ? `Error loading notes: ${error.message}` : 'Error loading notes.';
+                document.getElementById('subjectList').innerHTML = `
+                    <div class="state-card error">
+                        <i data-lucide="triangle-alert"></i>
+                        <p>${message}</p>
+                    </div>
+                `;
+                lucide.createIcons();
+            }
+        }
+        function toggleFiles(card, toggleButton) {
             const filesList = card.querySelector('.files-list');
             const isExpanded = filesList.style.display !== 'none';
             filesList.style.display = isExpanded ? 'none' : 'block';
             card.classList.toggle('expanded', !isExpanded);
+            if (toggleButton) {
+                toggleButton.setAttribute('aria-expanded', String(!isExpanded));
+                toggleButton.querySelector("span").textContent = isExpanded ? "Show notes" : "Hide notes";
+            }
         }
 
         function openPDF(file) {
-            window.open("../data/" + file, "_blank");
+            window.open(buildDataUrl(file), "_blank");
         }
+
+        document.getElementById("notesSearch").addEventListener("input", (event) => {
+            filterNotes(event.target.value);
+        });
 
         loadNotes();
     </script>

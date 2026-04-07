@@ -17,7 +17,7 @@
                 <div class="brand">
                     <div class="brand-mark">KT</div>
                     <div class="brand-copy">
-                        <h2 class="chat-title">Personal Coach</h2>
+                        <h2 class="chat-title">Study Coach</h2>
                         <p class="chat-subtitle">Ask doubts in plain language.</p>
                     </div>
                 </div>
@@ -25,15 +25,20 @@
                 <div class="chat-tips">
                     <div class="tip-card">
                         <strong>Try prompts like</strong>
-                        <p class="section-copy">"Explain binary search in simple steps."</p>
+                        <p class="section-copy">"Explain Dijkstra's algorithm from AAD module 3 in simple steps."</p>
                     </div>
                     <div class="tip-card">
                         <strong>Better results</strong>
-                        <p class="section-copy">Mention your subject, unit, or the kind of answer you want.</p>
+                        <p class="section-copy">Mention the subject, module, and whether you want a teacher, exam, or revision answer.</p>
+                    </div>
+                    <div class="tip-card">
+                        <strong>Exam prompt</strong>
+                        <p class="section-copy">"Give a 5-mark KTU answer for fractional knapsack with key points."</p>
                     </div>
                     <div class="tip-card">
                         <strong>Quick navigation</strong>
-                        <p class="section-copy"><a href="front.html" style="color: var(--primary-deep); font-weight: 700;">Back to dashboard</a></p>
+                        <p class="section-copy"><a href="front.html"
+                                style="color: var(--primary-deep); font-weight: 700;">Back to dashboard</a></p>
                     </div>
                 </div>
             </aside>
@@ -43,20 +48,34 @@
                     <div>
                         <p class="eyebrow" style="margin-bottom: 10px;">
                             <i data-lucide="bot"></i>
-                            White and blue study assistant
+                            study assistant
                         </p>
                         <h1 class="page-title">KTU Assistant Chat</h1>
-                        <p class="page-copy" id="chatGreeting">Use it for quick doubts, concept breakdowns, and revision help.</p>
+                        <p class="page-copy" id="chatGreeting">Use it for quick doubts, concept breakdowns, and revision
+                            help.</p>
                     </div>
                 </div>
 
                 <div id="chatBox" class="chat-log">
-                    <div class="message bot" id="welcomeMessage">Hi. Ask me anything about your KTU subjects and I'll help you work through it.</div>
+                    <div class="message bot" id="welcomeMessage">Hello. Ask me anything about
+                        your subjects and I'll help you work through it.</div>
                 </div>
 
                 <div class="chat-composer">
-                    <input id="userInput" class="chat-input" type="text" placeholder="Ask your doubt here..." />
-                    <button class="button" onclick="sendMessage()">Send</button>
+                    <div class="chat-composer-main">
+                        <input id="userInput" class="chat-input" type="text" placeholder="Ask your doubt here..." />
+                        <button class="button" onclick="sendMessage()">Send</button>
+                    </div>
+                    <div class="chat-mode-row">
+                        <label class="chat-mode-bubble" for="chatMode">
+                            <span>Mode</span>
+                            <select id="chatMode" class="chat-mode" title="Response style">
+                                <option value="teacher">Teacher</option>
+                                <option value="exam">Exam</option>
+                                <option value="revision">Revision</option>
+                            </select>
+                        </label>
+                    </div>
                 </div>
             </section>
         </section>
@@ -70,22 +89,62 @@
         const chatGreeting = document.getElementById("chatGreeting");
 
         if (storedUser) {
-            welcomeMessage.innerText = `Hi ${storedUser.username}. I'm your personal coach for KTU subjects. Ask me anything and I'll help you work through it.`;
+            welcomeMessage.innerText = `Hello ${storedUser.username}. Ask me anything and I'll walk you through it.`;
             chatGreeting.innerText = `Welcome back, ${storedUser.username}. Use your coach for quick doubts, concept breakdowns, and revision help.`;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                "\"": "&quot;",
+                "'": "&#39;"
+            }[character]));
+        }
+
+        function normalizeChatLink(url) {
+            if (url.startsWith("/data/")) {
+                return buildApiUrl(url);
+            }
+
+            return url;
+        }
+
+        function renderMessageContent(text) {
+            const linkPattern = /\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/data\/[^)\s]+)\)/g;
+            let html = "";
+            let lastIndex = 0;
+            let match;
+
+            while ((match = linkPattern.exec(text)) !== null) {
+                html += escapeHtml(text.slice(lastIndex, match.index));
+
+                const label = escapeHtml(match[1]);
+                const url = normalizeChatLink(match[2]);
+                const safeUrl = escapeHtml(url);
+                html += `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+                lastIndex = linkPattern.lastIndex;
+            }
+
+            html += escapeHtml(text.slice(lastIndex));
+            return html.replace(/\n/g, "<br>");
         }
 
         function addMessage(text, sender) {
             const chatBox = document.getElementById("chatBox");
             const messageDiv = document.createElement("div");
             messageDiv.classList.add("message", sender);
-            messageDiv.innerText = text;
+            messageDiv.innerHTML = renderMessageContent(text);
             chatBox.appendChild(messageDiv);
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
         async function sendMessage() {
             const input = document.getElementById("userInput");
+            const modeInput = document.getElementById("chatMode");
             const question = input.value.trim();
+            const mode = modeInput ? modeInput.value : "teacher";
 
             if (!question) return;
 
@@ -100,7 +159,8 @@
                     },
                     body: JSON.stringify({
                         message: question,
-                        user_id: storedUser ? storedUser.id : null
+                        user_id: storedUser ? storedUser.id : null,
+                        mode: mode
                     })
                 });
 
